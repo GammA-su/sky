@@ -1,0 +1,14 @@
+model:
+  vocab_size: 259
+  d_model: 256
+  n_layers: 6
+  n_heads: 4
+  d_ff: 1024
+  max_seq_len: 256
+  dropout: 0.1
+  n_state_slots: 8
+  n_state_ids: 3
+  exit_layers: [3, 6]
+  use_router: true
+  router_hidden: 128
+  belief_vocab: 1024

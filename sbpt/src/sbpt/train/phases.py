@@ -1,0 +1,15 @@
+"""Phase definitions for training."""
+
+from __future__ import annotations
+
+PHASE_DEFAULTS = {
+    "phase0_lm": {"lm": 1.0},
+    "phase1_state": {"lm": 1.0, "state": 1.0, "transition": 0.1},
+    "phase2_belief": {"lm": 1.0, "belief": 0.5},
+    "phase3_verify": {"lm": 1.0, "verify": 0.1, "calib": 0.1},
+    "phase4_robust": {"lm": 1.0, "robust": 0.1},
+}
+
+
+def get_phase_defaults(phase: str) -> dict[str, float]:
+    return dict(PHASE_DEFAULTS.get(phase, {}))

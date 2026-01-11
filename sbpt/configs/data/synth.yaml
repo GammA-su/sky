@@ -1,0 +1,6 @@
+data:
+  type: synth
+  n: 500
+  seed: 123
+  min_digits: 2
+  max_digits: 3

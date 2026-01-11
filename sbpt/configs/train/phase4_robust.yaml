@@ -1,0 +1,19 @@
+model: configs/model/sbpt_mvp_120m.yaml
+data:
+  type: synth
+  n: 500
+  seed: 123
+  min_digits: 2
+  max_digits: 3
+train:
+  phase: phase4_robust
+  steps: 200
+  batch_size: 8
+  lr: 1e-3
+  weight_decay: 0.01
+  seed: 123
+  log_every: 10
+  save_path: /tmp/sbpt_ckpt.pt
+loss_weights:
+  lm: 1.0
+  robust: 0.1
