@@ -14,7 +14,7 @@ uv venv && uv sync
 uv run pytest -q
 uv run python scripts/01_make_synth.py --out data.jsonl --n 200
 uv run python scripts/03_train_phase.py --config configs/train/phase1_state.yaml --data data.jsonl --steps 200 --cpu
-uv run python scripts/04_eval_suite.py --ckpt /tmp/sbpt_ckpt.pt
+uv run python scripts/04_eval_suite.py --ckpt out/sbpt_ckpt.pt
 ```
 
 See configs/ and scripts/ for end-to-end runs.

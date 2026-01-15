@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 
 from sbpt.utils.runtime import configure_runtime, setup_logging
 
@@ -10,9 +11,11 @@ from sbpt.utils.runtime import configure_runtime, setup_logging
 def main() -> None:
     logger = setup_logging("sbpt.build_mix")
     configure_runtime(logger=logger)
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    default_out = os.path.join(repo_root, "out", "sbpt_mix.jsonl")
     parser = argparse.ArgumentParser()
     parser.add_argument("--inputs", nargs="+", required=True)
-    parser.add_argument("--out", required=True)
+    parser.add_argument("--out", default=default_out)
     args = parser.parse_args()
 
     count = 0

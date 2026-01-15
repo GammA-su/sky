@@ -13,8 +13,10 @@ train:
   weight_decay: 0.01
   seed: 123
   log_every: 10
-  save_path: /tmp/sbpt_ckpt.pt
+  save_path: out/sbpt_ckpt.pt
 loss_weights:
   lm: 1.0
-  verify: 0.1
+  verify: 1.0
   calib: 0.1
+  state: 0.10
+  trans: 0.02

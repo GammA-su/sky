@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 
 from sbpt.data.synth_traces import iter_synth
 from sbpt.utils.runtime import configure_runtime, setup_logging
@@ -12,8 +13,10 @@ from sbpt.utils.runtime import configure_runtime, setup_logging
 def main() -> None:
     logger = setup_logging("sbpt.make_synth")
     configure_runtime(logger=logger)
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    default_out = os.path.join(repo_root, "out", "sbpt_synth.jsonl")
     parser = argparse.ArgumentParser()
-    parser.add_argument("--out", required=True)
+    parser.add_argument("--out", default=default_out)
     parser.add_argument("--n", type=int, default=200)
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--min-digits", type=int, default=2)

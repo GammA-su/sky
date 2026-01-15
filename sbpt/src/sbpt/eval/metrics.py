@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Iterable
 
@@ -35,6 +36,33 @@ def constraint_satisfaction(texts: Iterable[str], pattern: str) -> float:
         return 0.0
     ok = sum(1 for t in texts_list if regex.search(t))
     return ok / len(texts_list)
+
+
+def format_strict_pass(pred: str) -> bool:
+    text = pred.strip()
+    if not text:
+        return False
+    if text[0] not in "{[" or text[-1] not in "}]":
+        return False
+    try:
+        json.loads(text)
+    except json.JSONDecodeError:
+        return False
+    return True
+
+
+def equiv_consistency(outputs: list[str], equiv_ids: list[int]) -> float:
+    if not outputs:
+        return 0.0
+    groups: dict[int, set[str]] = {}
+    for output, equiv_id in zip(outputs, equiv_ids):
+        if equiv_id < 0:
+            continue
+        groups.setdefault(equiv_id, set()).add(output.strip())
+    if not groups:
+        return 0.0
+    consistent = sum(1 for vals in groups.values() if len(vals) == 1)
+    return consistent / len(groups)
 
 
 def expected_calibration_error(

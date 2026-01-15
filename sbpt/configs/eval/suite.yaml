@@ -1,6 +1,18 @@
 eval:
-  n: 200
-  seed: 321
-  min_digits: 2
-  max_digits: 3
   max_len: 256
+  datasets:
+    in_dist:
+      type: synth
+      n: 200
+      seed: 321
+      min_digits: 2
+      max_digits: 3
+    ood_digits:
+      type: jsonl
+      path: out/eval_ood_digits.jsonl
+    format_hard:
+      type: jsonl
+      path: out/eval_format_hard.jsonl
+    robust_pairs:
+      type: jsonl
+      path: out/eval_robust_pairs.jsonl

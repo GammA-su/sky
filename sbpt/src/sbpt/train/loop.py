@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, Optional
 
+import os
 import torch
 
 from sbpt.data.loaders import DataConfig, build_dataloader
@@ -13,7 +14,7 @@ from sbpt.losses.ccva_router import ccva_router_loss
 from sbpt.losses.lm import compute_lm_loss
 from sbpt.losses.state_transition import compute_state_losses
 from sbpt.model.sbpt import SBPTConfig, SBPTModel
-from sbpt.train.ckpt import save_ckpt
+from sbpt.train.ckpt import load_ckpt, save_ckpt
 from sbpt.train.logging import Logger
 from sbpt.train.optim import build_optimizer, build_scheduler
 from sbpt.train.phases import get_phase_defaults
@@ -46,22 +47,13 @@ def train(
     weights = cfg.get("loss_weights", {})
     if not weights:
         weights = get_phase_defaults(phase)
+    trans_weight = float(weights.get("trans", weights.get("transition", 0.0)))
 
     seed = int(train_cfg.get("seed", 123))
     set_seed(seed)
 
     device = torch.device("cpu" if cpu or not torch.cuda.is_available() else "cuda")
     tokenizer = ByteTokenizer()
-
-    data_dict = cfg.get("data", {})
-    data_cfg = DataConfig(**data_dict)
-    if data_path:
-        data_cfg.type = "jsonl"
-        data_cfg.path = data_path
-
-    batch_size = int(train_cfg.get("batch_size", 8))
-    max_len = cfg.get("eval", {}).get("max_len")
-    loader = build_dataloader(data_cfg, tokenizer, batch_size=batch_size, max_len=max_len)
 
     model_cfg_path = cfg.get("model")
     if isinstance(model_cfg_path, str):
@@ -73,6 +65,16 @@ def train(
     model_cfg = SBPTConfig(**model_dict)
     model = SBPTModel(model_cfg).to(device)
 
+    data_dict = cfg.get("data", {})
+    data_cfg = DataConfig(**data_dict)
+    if data_path:
+        data_cfg.type = "jsonl"
+        data_cfg.path = data_path
+
+    batch_size = int(train_cfg.get("batch_size", 8))
+    max_len = model_cfg.max_seq_len
+    loader = build_dataloader(data_cfg, tokenizer, batch_size=batch_size, max_len=max_len)
+
     optimizer = build_optimizer(model, lr=float(train_cfg.get("lr", 1e-3)), weight_decay=float(train_cfg.get("weight_decay", 0.01)))
     steps = int(steps_override or train_cfg.get("steps", 200))
     scheduler = build_scheduler(optimizer, total_steps=steps)
@@ -81,8 +83,15 @@ def train(
     iterator = _cycle(loader)
     adjacency = _build_adjacency(model_cfg.n_state_ids).to(device)
 
+    init_ckpt = train_cfg.get("init_ckpt")
+    if init_ckpt:
+        load_ckpt(init_ckpt, model)
+        logger.log({"init_ckpt": init_ckpt})
+
     model.train()
     last_loss = 0.0
+    warned_state = False
+    warned_trans = False
     for step in range(1, steps + 1):
         batch = next(iterator)
         input_ids = batch["input_ids"].to(device)
@@ -90,6 +99,13 @@ def train(
         attention_mask = batch["attention_mask"].to(device)
         state_ids = batch["state_ids"].to(device)
         metadata = {"hypotheses": batch.get("hypotheses", [])}
+
+        if not warned_state and "state_ids" in batch and weights.get("state", 0.0) <= 0:
+            logger.log({"level": "WARNING", "message": "state_ids present but loss_weights.state is 0; state head may drift/forget"})
+            warned_state = True
+        if not warned_trans and "state_ids" in batch and trans_weight <= 0:
+            logger.log({"level": "WARNING", "message": "state_ids present but loss_weights.trans is 0; transition loss disabled"})
+            warned_trans = True
 
         outputs = model(input_ids=input_ids, attention_mask=attention_mask, metadata=metadata)
         logits = outputs["logits"]
@@ -108,7 +124,7 @@ def train(
         if weights.get("state", 0.0) > 0 and "state_logits" in aux:
             state_losses = compute_state_losses(aux["state_logits"], state_ids, adjacency)
             loss_total = loss_total + float(weights.get("state", 1.0)) * state_losses["loss_state"]
-            loss_total = loss_total + float(weights.get("transition", 0.0)) * state_losses["loss_trans"]
+            loss_total = loss_total + trans_weight * state_losses["loss_trans"]
             loss_items["state"] = float(state_losses["loss_state"].detach().cpu())
             loss_items["trans"] = float(state_losses["loss_trans"].detach().cpu())
 
@@ -151,7 +167,8 @@ def train(
         if step % int(train_cfg.get("log_every", 10)) == 0:
             logger.log({"step": step, "loss": last_loss, **loss_items})
 
-    save_path = str(train_cfg.get("save_path", "/tmp/sbpt_ckpt.pt"))
+    save_path = str(train_cfg.get("save_path", "out/sbpt_ckpt.pt"))
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
     save_ckpt(save_path, model, optimizer, cfg, steps)
     logger.close()
     return {"loss": last_loss}

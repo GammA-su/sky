@@ -73,6 +73,8 @@ def collate_batch(
 
     hypotheses_list: List[List[str]] = []
     correct_list: List[List[bool]] = []
+    equiv_ids: List[int] = []
+    verify_labels: List[int] = []
 
     for row in batch:
         row = _maybe_add_hypotheses(row)
@@ -104,6 +106,11 @@ def collate_batch(
         hypotheses_list.append(hypotheses)
         correct_list.append(correct)
 
+        equiv_id = row.get("equiv_id", None)
+        equiv_ids.append(int(equiv_id) if equiv_id is not None else -1)
+        verify_label = row.get("verify_label", None)
+        verify_labels.append(int(verify_label) if verify_label is not None else -1)
+
     max_len_batch = max(len(ids) for ids in input_ids_list)
     padded_inputs = []
     padded_labels = []
@@ -118,6 +125,8 @@ def collate_batch(
     labels_tensor = torch.tensor(padded_labels, dtype=torch.long)
     attention_tensor = torch.tensor(padded_attention, dtype=torch.bool)
     state_ids_tensor = torch.tensor(state_ids_list, dtype=torch.long)
+    equiv_ids_tensor = torch.tensor(equiv_ids, dtype=torch.long)
+    verify_labels_tensor = torch.tensor(verify_labels, dtype=torch.long)
 
     max_h = max((len(h) for h in hypotheses_list), default=0)
     if max_h > 0:
@@ -140,6 +149,8 @@ def collate_batch(
         "hypotheses": hypotheses_list,
         "correct_mask": correct_mask,
         "hypothesis_mask": hypothesis_mask,
+        "equiv_id": equiv_ids_tensor,
+        "verify_label": verify_labels_tensor,
     }
 
 
