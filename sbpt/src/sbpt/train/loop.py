@@ -92,7 +92,13 @@ def train(
     last_loss = 0.0
     warned_state = False
     warned_trans = False
+    warned_alignment = False
+    zero_state_loss_steps = 0
+    warned_zero_state_loss = False
     carry_trace_batches = 0
+    last_supervised_tokens = 0
+    last_carry_examples = 0
+
     for step in range(1, steps + 1):
         batch = next(iterator)
         input_ids = batch["input_ids"].to(device)
@@ -101,9 +107,17 @@ def train(
         state_ids = batch["state_ids"].to(device)
         metadata = {"hypotheses": batch.get("hypotheses", [])}
 
+        state_supervised_tokens = int(batch.get("state_supervised_tokens", 0))
+        num_carry_examples = int(batch.get("num_carry_examples", 0))
+        last_supervised_tokens = state_supervised_tokens
+        last_carry_examples = num_carry_examples
+
         task_types = batch.get("task_type", [])
         if task_types and any(task_type == "add_carry_trace" for task_type in task_types):
             carry_trace_batches += 1
+            if num_carry_examples > 0 and state_supervised_tokens == 0 and not warned_alignment:
+                logger.log({"level": "WARNING", "message": "carry_trace present but 0 supervised state tokens; alignment bug"})
+                warned_alignment = True
 
         if not warned_state and "state_ids" in batch and weights.get("state", 0.0) <= 0:
             logger.log({"level": "WARNING", "message": "state_ids present but loss_weights.state is 0; state head may drift/forget"})
@@ -120,6 +134,7 @@ def train(
 
         loss_total = torch.tensor(0.0, device=device)
         loss_items: Dict[str, float] = {}
+        state_loss_value: Optional[float] = None
 
         if weights.get("lm", 0.0) > 0:
             lm_loss = compute_lm_loss(logits, labels)
@@ -130,8 +145,16 @@ def train(
             state_losses = compute_state_losses(aux["state_logits"], state_ids, adjacency)
             loss_total = loss_total + float(weights.get("state", 1.0)) * state_losses["loss_state"]
             loss_total = loss_total + trans_weight * state_losses["loss_trans"]
-            loss_items["state"] = float(state_losses["loss_state"].detach().cpu())
+            state_loss_value = float(state_losses["loss_state"].detach().cpu())
+            loss_items["state"] = state_loss_value
             loss_items["trans"] = float(state_losses["loss_trans"].detach().cpu())
+            if state_loss_value == 0.0:
+                zero_state_loss_steps += 1
+                if zero_state_loss_steps >= 10 and not warned_zero_state_loss:
+                    logger.log({"level": "WARNING", "message": "state loss zero for 10 steps; check alignment"})
+                    warned_zero_state_loss = True
+            else:
+                zero_state_loss_steps = 0
 
         if weights.get("belief", 0.0) > 0 and "belief_logits" in aux:
             correct_mask = batch.get("correct_mask")
@@ -170,7 +193,16 @@ def train(
 
         last_loss = float(loss_total.detach().cpu())
         if step % int(train_cfg.get("log_every", 10)) == 0:
-            logger.log({"step": step, "loss": last_loss, "carry_trace_batches": carry_trace_batches, **loss_items})
+            logger.log(
+                {
+                    "step": step,
+                    "loss": last_loss,
+                    "carry_trace_batches": carry_trace_batches,
+                    "state_supervised_tokens": last_supervised_tokens,
+                    "num_carry_examples": last_carry_examples,
+                    **loss_items,
+                }
+            )
 
     save_path = str(train_cfg.get("save_path", "out/sbpt_ckpt.pt"))
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)

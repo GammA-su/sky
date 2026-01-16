@@ -81,9 +81,10 @@ def generate_add_carry_trace_example(
     a = rng.randint(10 ** (a_digits - 1), 10 ** a_digits - 1)
     b = rng.randint(10 ** (b_digits - 1), 10 ** b_digits - 1)
     prompt = f"Add {a} and {b}. Reply with only the final sum."
-    completion = f" {a + b}"
+    sum_str = str(a + b)
+    completion = f" {sum_str}"
 
-    total_digits = max_digits
+    total_digits = len(sum_str)
     a_rev = _digits_for(a, total_digits)
     b_rev = _digits_for(b, total_digits)
 
@@ -94,10 +95,21 @@ def generate_add_carry_trace_example(
         digit_sum = a_rev[pos] + b_rev[pos] + carry
         carry = 1 if digit_sum >= 10 else 0
 
+    digit_offset = len(completion) - len(sum_str)
+    state_spans: list[tuple[int, int, int]] = []
+    if digit_offset > 0:
+        state_spans.append((0, digit_offset, state_ids[-1]))
+    for idx in range(len(sum_str)):
+        pos_index = total_digits - 1 - idx
+        state_value = state_ids[pos_index]
+        start_char = digit_offset + idx
+        state_spans.append((start_char, start_char + 1, state_value))
+
     return {
         "prompt": prompt,
         "completion": completion,
         "state_ids": state_ids,
+        "state_spans": state_spans,
         "task_type": "add_carry_trace",
     }
 

@@ -17,4 +17,5 @@ train:
 loss_weights:
   lm: 1.0
   state: 1.0
+  trans: 0.1
   transition: 0.1

@@ -18,4 +18,5 @@ loss_weights:
   lm: 1.0
   state: 0.25
   trans: 0.05
+  transition: 0.05
   belief: 0.5

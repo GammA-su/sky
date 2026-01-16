@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -64,7 +64,7 @@ def _build_rows_from_config(cfg: DataConfig) -> list[dict]:
     return []
 
 
-def _select_state_anchors(state_ids: List[int], anchors: int = _STATE_ANCHORS) -> List[int]:
+def _select_state_anchors(state_ids: Sequence[int], anchors: int = _STATE_ANCHORS) -> List[int]:
     if anchors <= 0:
         return []
     if not state_ids:
@@ -79,6 +79,43 @@ def _select_state_anchors(state_ids: List[int], anchors: int = _STATE_ANCHORS) -
     last_idx = len(state_ids) - 1
     indices = [(i * last_idx) // (anchors - 1) for i in range(anchors)]
     return [state_ids[i] for i in indices]
+
+
+def expand_state_spans(row: dict, completion: str, tokenizer: ByteTokenizer) -> Tuple[Optional[List[int]], int]:
+    spans = row.get("state_spans")
+    if not spans or not completion:
+        return None, 0
+    normalized_spans: list[Tuple[int, int, int]] = []
+    for span in spans:
+        if not isinstance(span, (list, tuple)) or len(span) != 3:
+            continue
+        try:
+            start = int(span[0])
+            end = int(span[1])
+            state = int(span[2])
+        except (TypeError, ValueError):
+            continue
+        if start < 0 or end <= start or start >= len(completion):
+            continue
+        end = min(end, len(completion))
+        normalized_spans.append((start, end, state))
+    if not normalized_spans:
+        return None, 0
+    normalized_spans.sort(key=lambda s: s[0])
+    token_states: List[int] = []
+    supervised = 0
+    for start, end, state in normalized_spans:
+        chunk = completion[start:end]
+        if not chunk:
+            continue
+        tokens = tokenizer.encode(chunk, add_bos=False, add_eos=False)
+        if not tokens:
+            continue
+        token_states.extend([state] * len(tokens))
+        supervised += len(tokens)
+    if not token_states:
+        return None, 0
+    return token_states, supervised
 
 
 def collate_batch(
@@ -96,6 +133,9 @@ def collate_batch(
     equiv_ids: List[int] = []
     verify_labels: List[int] = []
     task_types: List[str] = []
+
+    state_supervised_tokens = 0
+    num_carry_examples = 0
 
     for row in batch:
         row = _maybe_add_hypotheses(row)
@@ -119,8 +159,16 @@ def collate_batch(
         labels_list.append(labels)
         attention_list.append(attention)
 
-        raw_state_ids = list(row.get("state_ids", [0, 1, 2]))
-        state_ids = _select_state_anchors(raw_state_ids)
+        state_tokens, supervised = expand_state_spans(row, completion, tokenizer)
+        if state_tokens is not None:
+            state_supervised_tokens += supervised
+            if supervised > 0:
+                num_carry_examples += 1
+            final_state_ids = state_tokens
+        else:
+            final_state_ids = list(row.get("state_ids", [0, 1, 2]))
+
+        state_ids = _select_state_anchors(final_state_ids)
         state_ids_list.append(state_ids)
 
         hypotheses = list(row.get("hypotheses", []))
@@ -177,6 +225,8 @@ def collate_batch(
         "equiv_id": equiv_ids_tensor,
         "verify_label": verify_labels_tensor,
         "task_type": task_types,
+        "state_supervised_tokens": state_supervised_tokens,
+        "num_carry_examples": num_carry_examples,
     }
 
 
