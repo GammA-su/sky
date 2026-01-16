@@ -85,13 +85,14 @@ def train(
 
     init_ckpt = train_cfg.get("init_ckpt")
     if init_ckpt:
-        load_ckpt(init_ckpt, model)
+        load_ckpt(init_ckpt, model, strict=False)
         logger.log({"init_ckpt": init_ckpt})
 
     model.train()
     last_loss = 0.0
     warned_state = False
     warned_trans = False
+    carry_trace_batches = 0
     for step in range(1, steps + 1):
         batch = next(iterator)
         input_ids = batch["input_ids"].to(device)
@@ -99,6 +100,10 @@ def train(
         attention_mask = batch["attention_mask"].to(device)
         state_ids = batch["state_ids"].to(device)
         metadata = {"hypotheses": batch.get("hypotheses", [])}
+
+        task_types = batch.get("task_type", [])
+        if task_types and any(task_type == "add_carry_trace" for task_type in task_types):
+            carry_trace_batches += 1
 
         if not warned_state and "state_ids" in batch and weights.get("state", 0.0) <= 0:
             logger.log({"level": "WARNING", "message": "state_ids present but loss_weights.state is 0; state head may drift/forget"})
@@ -165,7 +170,7 @@ def train(
 
         last_loss = float(loss_total.detach().cpu())
         if step % int(train_cfg.get("log_every", 10)) == 0:
-            logger.log({"step": step, "loss": last_loss, **loss_items})
+            logger.log({"step": step, "loss": last_loss, "carry_trace_batches": carry_trace_batches, **loss_items})
 
     save_path = str(train_cfg.get("save_path", "out/sbpt_ckpt.pt"))
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)

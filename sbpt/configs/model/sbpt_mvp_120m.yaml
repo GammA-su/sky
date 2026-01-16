@@ -7,7 +7,7 @@ model:
   max_seq_len: 256
   dropout: 0.1
   n_state_slots: 8
-  n_state_ids: 3
+  n_state_ids: 18
   exit_layers: [3, 6]
   use_router: true
   router_hidden: 128

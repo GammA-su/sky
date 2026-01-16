@@ -15,6 +15,9 @@ from sbpt.utils.io import load_jsonl
 from sbpt.utils.seed import seed_worker
 
 
+_STATE_ANCHORS = 3
+
+
 @dataclass
 class DataConfig:
     type: str = "synth"
@@ -61,6 +64,23 @@ def _build_rows_from_config(cfg: DataConfig) -> list[dict]:
     return []
 
 
+def _select_state_anchors(state_ids: List[int], anchors: int = _STATE_ANCHORS) -> List[int]:
+    if anchors <= 0:
+        return []
+    if not state_ids:
+        return [0] * anchors
+    if len(state_ids) == anchors:
+        return list(state_ids)
+    if len(state_ids) < anchors:
+        pad = state_ids[-1]
+        return list(state_ids) + [pad] * (anchors - len(state_ids))
+    if anchors == 1:
+        return [state_ids[-1]]
+    last_idx = len(state_ids) - 1
+    indices = [(i * last_idx) // (anchors - 1) for i in range(anchors)]
+    return [state_ids[i] for i in indices]
+
+
 def collate_batch(
     batch: List[dict],
     tokenizer: ByteTokenizer,
@@ -75,6 +95,7 @@ def collate_batch(
     correct_list: List[List[bool]] = []
     equiv_ids: List[int] = []
     verify_labels: List[int] = []
+    task_types: List[str] = []
 
     for row in batch:
         row = _maybe_add_hypotheses(row)
@@ -98,8 +119,9 @@ def collate_batch(
         labels_list.append(labels)
         attention_list.append(attention)
 
-        state_ids = row.get("state_ids", [0, 1, 2])
-        state_ids_list.append(list(state_ids))
+        raw_state_ids = list(row.get("state_ids", [0, 1, 2]))
+        state_ids = _select_state_anchors(raw_state_ids)
+        state_ids_list.append(state_ids)
 
         hypotheses = list(row.get("hypotheses", []))
         correct = list(row.get("correct_mask", []))
@@ -110,6 +132,9 @@ def collate_batch(
         equiv_ids.append(int(equiv_id) if equiv_id is not None else -1)
         verify_label = row.get("verify_label", None)
         verify_labels.append(int(verify_label) if verify_label is not None else -1)
+
+        task_type = row.get("task_type", None)
+        task_types.append(str(task_type) if task_type is not None else "")
 
     max_len_batch = max(len(ids) for ids in input_ids_list)
     padded_inputs = []
@@ -151,6 +176,7 @@ def collate_batch(
         "hypothesis_mask": hypothesis_mask,
         "equiv_id": equiv_ids_tensor,
         "verify_label": verify_labels_tensor,
+        "task_type": task_types,
     }
 
 
