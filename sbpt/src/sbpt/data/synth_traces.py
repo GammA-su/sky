@@ -136,3 +136,68 @@ def iter_add_carry_trace(
     rng = random.Random(seed)
     for _ in range(n):
         yield generate_add_carry_trace_example(rng, min_digits=min_digits, max_digits=max_digits)
+
+
+def generate_add_carry_stepwise_example(
+    rng: random.Random,
+    min_digits: int,
+    max_digits: int,
+) -> dict[str, object]:
+    a_digits = rng.randint(min_digits, max_digits)
+    b_digits = rng.randint(min_digits, max_digits)
+    a = rng.randint(10 ** (a_digits - 1), 10 ** a_digits - 1)
+    b = rng.randint(10 ** (b_digits - 1), 10 ** b_digits - 1)
+    prompt = f"Add {a} and {b}. Reply with digits separated by spaces."
+    sum_str = str(a + b)
+    completion = " ".join(sum_str)
+
+    total_digits = len(sum_str)
+    a_rev = _digits_for(a, total_digits)
+    b_rev = _digits_for(b, total_digits)
+
+    carry = 0
+    state_ids: list[int] = []
+    for pos in range(total_digits):
+        state_ids.append(_encode_carry_state(pos, carry))
+        digit_sum = a_rev[pos] + b_rev[pos] + carry
+        carry = 1 if digit_sum >= 10 else 0
+
+    state_spans: list[tuple[int, int, int]] = []
+    start_char = 0
+    for idx in range(total_digits):
+        pos_index = total_digits - 1 - idx
+        state_value = state_ids[pos_index]
+        state_spans.append((start_char, start_char + 1, state_value))
+        start_char += 2
+
+    return {
+        "prompt": prompt,
+        "completion": completion,
+        "state_ids": state_ids,
+        "state_spans": state_spans,
+        "task_type": "add_carry_stepwise",
+    }
+
+
+def generate_add_carry_stepwise_samples(
+    n: int,
+    seed: int = 0,
+    min_digits: int = 6,
+    max_digits: int = 9,
+) -> list[dict[str, object]]:
+    rng = random.Random(seed)
+    rows: list[dict[str, object]] = []
+    for _ in range(n):
+        rows.append(generate_add_carry_stepwise_example(rng, min_digits=min_digits, max_digits=max_digits))
+    return rows
+
+
+def iter_add_carry_stepwise(
+    n: int,
+    seed: int = 0,
+    min_digits: int = 6,
+    max_digits: int = 9,
+) -> Iterable[dict[str, object]]:
+    rng = random.Random(seed)
+    for _ in range(n):
+        yield generate_add_carry_stepwise_example(rng, min_digits=min_digits, max_digits=max_digits)

@@ -9,7 +9,7 @@ train:
   phase: phase2_belief
   steps: 200
   batch_size: 8
-  lr: 1e-3
+  lr: 3e-4
   weight_decay: 0.01
   seed: 123
   log_every: 10
@@ -17,6 +17,6 @@ train:
 loss_weights:
   lm: 1.0
   state: 0.25
-  trans: 0.05
-  transition: 0.05
+  trans: 0.06
+  transition: 0.06
   belief: 0.5

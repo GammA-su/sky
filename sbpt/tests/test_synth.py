@@ -1,6 +1,10 @@
 from sbpt.data.loaders import expand_state_spans
 from sbpt.data.schemas import ByteTokenizer
-from sbpt.data.synth_traces import generate_add_carry_trace_samples, generate_addition_samples
+from sbpt.data.synth_traces import (
+    generate_add_carry_stepwise_samples,
+    generate_add_carry_trace_samples,
+    generate_addition_samples,
+)
 
 
 def test_synth_deterministic() -> None:
@@ -24,6 +28,19 @@ def test_add_carry_trace_deterministic() -> None:
         assert state_ids
         assert len(state_ids) == max_digits or len(state_ids) <= max_digits
         assert all(0 <= state_id for state_id in state_ids)
+
+
+def test_add_carry_stepwise_alignment() -> None:
+    tokenizer = ByteTokenizer()
+    rows = generate_add_carry_stepwise_samples(3, seed=11, min_digits=6, max_digits=9)
+    for row in rows:
+        assert row["task_type"] == "add_carry_stepwise"
+        state_tokens, supervised = expand_state_spans(row, row["completion"], tokenizer)
+        assert state_tokens is not None
+        assert supervised > 0
+        digit_count = sum(ch.isdigit() for ch in row["completion"])
+        assert supervised == digit_count
+        assert supervised == len(state_tokens)
 
 
 def test_carry_trace_state_alignment() -> None:

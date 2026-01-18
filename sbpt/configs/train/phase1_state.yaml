@@ -9,13 +9,13 @@ train:
   phase: phase1_state
   steps: 200
   batch_size: 8
-  lr: 1e-3
+  lr: 3e-4
   weight_decay: 0.01
   seed: 123
   log_every: 10
   save_path: out/sbpt_ckpt.pt
 loss_weights:
   lm: 1.0
-  state: 1.0
-  trans: 0.1
-  transition: 0.1
+  state: 0.35
+  trans: 0.08
+  transition: 0.08

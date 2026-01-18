@@ -10,6 +10,9 @@ eval:
     ood_digits:
       type: jsonl
       path: out/eval_ood_digits.jsonl
+    ood_digits_stepwise:
+      type: jsonl
+      path: out/eval_ood_digits_stepwise.jsonl
     format_hard:
       type: jsonl
       path: out/eval_format_hard.jsonl
