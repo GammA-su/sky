@@ -16,8 +16,10 @@ from sbpt.data.synth_traces import generate_addition_samples, iter_add_carry_ste
 from sbpt.eval.metrics import (
     equiv_consistency,
     exact_match,
+    exact_match_stepwise,
     expected_calibration_error,
     format_strict_pass,
+    stepwise_format_pass,
     token_accuracy,
 )
 from sbpt.eval.probes import belief_entropy, router_continue_prob, state_accuracy
@@ -71,10 +73,58 @@ def _make_format_hard_pair(rng: random.Random, task_id: int) -> list[dict]:
     ]
 
 
+def _make_format_hard_stepwise_pair(
+    rng: random.Random,
+    task_id: int,
+    min_digits: int,
+    max_digits: int,
+) -> list[dict]:
+    a_digits = rng.randint(min_digits, max_digits)
+    b_digits = rng.randint(min_digits, max_digits)
+    a = rng.randint(10 ** (a_digits - 1), 10 ** a_digits - 1)
+    b = rng.randint(10 ** (b_digits - 1), 10 ** b_digits - 1)
+    prompt = f"Add {a} and {b}. Reply with digits separated by spaces."
+    temptation = rng.choice(
+        [
+            "Include a short explanation after the digits.",
+            "Add extra whitespace.",
+            "Prefix the answer with 'sum:'.",
+        ]
+    )
+    prompt = f"{prompt} {temptation}"
+
+    sum_str = str(a + b)
+    good = " ".join(sum_str)
+    corrupt_type = rng.choice(["double_space", "newline", "prefix", "suffix", "compact"])
+    if corrupt_type == "double_space":
+        bad = good.replace(" ", "  ", 1)
+    elif corrupt_type == "newline":
+        bad = good.replace(" ", "\n", 1)
+    elif corrupt_type == "prefix":
+        bad = f"sum: {good}"
+    elif corrupt_type == "suffix":
+        bad = f"{good} thanks"
+    else:
+        bad = good.replace(" ", "")
+
+    return [
+        {"prompt": prompt, "completion": good, "verify_label": 1, "verify_type": "stepwise_format", "task_id": task_id},
+        {"prompt": prompt, "completion": bad, "verify_label": 0, "verify_type": "stepwise_format", "task_id": task_id},
+    ]
+
+
 def _iter_format_hard(pairs: int, seed: int) -> Iterable[dict]:
     rng = random.Random(seed)
     for i in range(pairs):
         rows = _make_format_hard_pair(rng, task_id=i)
+        for row in rows:
+            yield row
+
+
+def _iter_format_hard_stepwise(pairs: int, seed: int, min_digits: int, max_digits: int) -> Iterable[dict]:
+    rng = random.Random(seed)
+    for i in range(pairs):
+        rows = _make_format_hard_stepwise_pair(rng, task_id=i, min_digits=min_digits, max_digits=max_digits)
         for row in rows:
             yield row
 
@@ -101,10 +151,46 @@ def _make_robust_pair(rng: random.Random, equiv_id: int) -> tuple[dict, dict]:
     return r1, r2
 
 
+def _make_robust_pair_stepwise(
+    rng: random.Random,
+    equiv_id: int,
+    min_digits: int,
+    max_digits: int,
+) -> tuple[dict, dict]:
+    a_digits = rng.randint(min_digits, max_digits)
+    b_digits = rng.randint(min_digits, max_digits)
+    a = rng.randint(10 ** (a_digits - 1), 10 ** a_digits - 1)
+    b = rng.randint(10 ** (b_digits - 1), 10 ** b_digits - 1)
+    sum_str = str(a + b)
+    completion = " ".join(sum_str)
+
+    p1 = f"Add {a} and {b}. Reply with digits separated by spaces."
+    distract = rng.choice(
+        [
+            "Ignore extra whitespace in the prompt.",
+            "Note: format must be digits separated by spaces.",
+            "Extra text is noise.",
+        ]
+    )
+    p2 = f"{distract}\nCompute {a} + {b} and output digits separated by spaces only."
+
+    r1 = {"prompt": p1, "completion": completion, "equiv_id": equiv_id}
+    r2 = {"prompt": p2, "completion": completion, "equiv_id": equiv_id}
+    return r1, r2
+
+
 def _iter_robust_pairs(pairs: int, seed: int) -> Iterable[dict]:
     rng = random.Random(seed)
     for i in range(pairs):
         r1, r2 = _make_robust_pair(rng, equiv_id=i)
+        yield r1
+        yield r2
+
+
+def _iter_robust_pairs_stepwise(pairs: int, seed: int, min_digits: int, max_digits: int) -> Iterable[dict]:
+    rng = random.Random(seed)
+    for i in range(pairs):
+        r1, r2 = _make_robust_pair_stepwise(rng, equiv_id=i, min_digits=min_digits, max_digits=max_digits)
         yield r1
         yield r2
 
@@ -143,9 +229,29 @@ def _ensure_eval_jsonl(name: str, ds_cfg: dict) -> str:
         rows = _iter_format_hard(pairs=pairs, seed=int(ds_cfg.get("seed", 123)))
         _write_jsonl(path, rows)
         return str(path)
+    if name == "format_hard_stepwise":
+        pairs = int(ds_cfg.get("pairs", ds_cfg.get("n", 200)))
+        rows = _iter_format_hard_stepwise(
+            pairs=pairs,
+            seed=int(ds_cfg.get("seed", 123)),
+            min_digits=int(ds_cfg.get("min_digits", 6)),
+            max_digits=int(ds_cfg.get("max_digits", 9)),
+        )
+        _write_jsonl(path, rows)
+        return str(path)
     if name == "robust_pairs":
         pairs = int(ds_cfg.get("pairs", ds_cfg.get("n", 200)))
         rows = _iter_robust_pairs(pairs=pairs, seed=int(ds_cfg.get("seed", 123)))
+        _write_jsonl(path, rows)
+        return str(path)
+    if name == "robust_pairs_stepwise":
+        pairs = int(ds_cfg.get("pairs", ds_cfg.get("n", 200)))
+        rows = _iter_robust_pairs_stepwise(
+            pairs=pairs,
+            seed=int(ds_cfg.get("seed", 123)),
+            min_digits=int(ds_cfg.get("min_digits", 6)),
+            max_digits=int(ds_cfg.get("max_digits", 9)),
+        )
         _write_jsonl(path, rows)
         return str(path)
 
@@ -233,6 +339,7 @@ def run_eval(ckpt_path: str, cfg_path: Optional[str] = None, cpu: bool = False) 
         verify_total = 0
         verify_correct = 0
         format_pass_total = 0
+        has_stepwise = False
 
         with torch.no_grad():
             for batch in loader:
@@ -275,13 +382,24 @@ def run_eval(ckpt_path: str, cfg_path: Optional[str] = None, cpu: bool = False) 
 
                 verify_batch = batch.get("verify_label")
                 if verify_batch is not None:
+                    verify_types = batch.get("verify_type", [])
                     for idx, label in enumerate(verify_batch.tolist()):
                         if label < 0:
                             continue
-                        pred_pass = format_strict_pass(pred_text[idx])
+                        verify_type = ""
+                        if verify_types and idx < len(verify_types):
+                            verify_type = verify_types[idx]
+                        if verify_type in ("stepwise_format", "stepwise_digits"):
+                            pred_pass = stepwise_format_pass(pred_text[idx])
+                        else:
+                            pred_pass = format_strict_pass(pred_text[idx])
                         verify_total += 1
                         verify_correct += int(pred_pass == bool(label))
                         format_pass_total += int(pred_pass)
+
+                task_types = batch.get("task_type", [])
+                if task_types and any(task_type == "add_carry_stepwise" for task_type in task_types):
+                    has_stepwise = True
 
         metrics = {
             "exact_match": exact_match(all_pred_text, all_target_text),
@@ -291,6 +409,10 @@ def run_eval(ckpt_path: str, cfg_path: Optional[str] = None, cpu: bool = False) 
             "belief_entropy": float(sum(belief_ents) / max(len(belief_ents), 1)),
             "router_continue": float(sum(router_probs) / max(len(router_probs), 1)),
         }
+        if has_stepwise or "stepwise" in name:
+            strict, normalized = exact_match_stepwise(all_pred_text, all_target_text)
+            metrics["exact_match_stepwise"] = normalized
+            metrics["exact_match_stepwise_strict"] = strict
         if equiv_ids:
             metrics["equiv_consistency"] = equiv_consistency(equiv_outputs, equiv_ids)
         if verify_total > 0:
@@ -302,6 +424,8 @@ def run_eval(ckpt_path: str, cfg_path: Optional[str] = None, cpu: bool = False) 
     summary: Dict[str, float] = {}
     for key in [
         "exact_match",
+        "exact_match_stepwise",
+        "exact_match_stepwise_strict",
         "token_accuracy",
         "ece",
         "state_accuracy",

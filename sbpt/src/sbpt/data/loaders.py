@@ -132,6 +132,7 @@ def collate_batch(
     correct_list: List[List[bool]] = []
     equiv_ids: List[int] = []
     verify_labels: List[int] = []
+    verify_types: List[str] = []
     task_types: List[str] = []
 
     state_supervised_tokens = 0
@@ -180,6 +181,8 @@ def collate_batch(
         equiv_ids.append(int(equiv_id) if equiv_id is not None else -1)
         verify_label = row.get("verify_label", None)
         verify_labels.append(int(verify_label) if verify_label is not None else -1)
+        verify_type = row.get("verify_type", None)
+        verify_types.append(str(verify_type) if verify_type is not None else "")
 
         task_type = row.get("task_type", None)
         task_types.append(str(task_type) if task_type is not None else "")
@@ -224,6 +227,7 @@ def collate_batch(
         "hypothesis_mask": hypothesis_mask,
         "equiv_id": equiv_ids_tensor,
         "verify_label": verify_labels_tensor,
+        "verify_type": verify_types,
         "task_type": task_types,
         "state_supervised_tokens": state_supervised_tokens,
         "num_carry_examples": num_carry_examples,

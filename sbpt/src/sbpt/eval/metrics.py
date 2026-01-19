@@ -18,6 +18,25 @@ def exact_match(preds: Iterable[str], targets: Iterable[str]) -> float:
     return correct / len(pairs)
 
 
+def exact_match_stepwise(preds: Iterable[str], targets: Iterable[str]) -> tuple[float, float]:
+    pairs = list(zip(preds, targets))
+    if not pairs:
+        return 0.0, 0.0
+    strict = 0
+    normalized = 0
+    for pred, target in pairs:
+        pred_str = pred.strip()
+        target_str = target.strip()
+        if pred_str == target_str:
+            strict += 1
+        pred_norm = pred_str.replace(" ", "")
+        target_norm = target_str.replace(" ", "")
+        if pred_norm == target_norm:
+            normalized += 1
+    total = len(pairs)
+    return strict / total, normalized / total
+
+
 def token_accuracy(logits: torch.Tensor, labels: torch.Tensor) -> float:
     if logits.numel() == 0:
         return 0.0
@@ -49,6 +68,13 @@ def format_strict_pass(pred: str) -> bool:
     except json.JSONDecodeError:
         return False
     return True
+
+
+def stepwise_format_pass(pred: str) -> bool:
+    text = pred.strip()
+    if not text:
+        return False
+    return re.fullmatch(r"\d(?: \d)*", text) is not None
 
 
 def equiv_consistency(outputs: list[str], equiv_ids: list[int]) -> float:

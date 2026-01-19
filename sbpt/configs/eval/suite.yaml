@@ -16,6 +16,12 @@ eval:
     format_hard:
       type: jsonl
       path: out/eval_format_hard.jsonl
+    format_hard_stepwise:
+      type: jsonl
+      path: out/eval_format_hard_stepwise.jsonl
     robust_pairs:
       type: jsonl
       path: out/eval_robust_pairs.jsonl
+    robust_pairs_stepwise:
+      type: jsonl
+      path: out/eval_robust_pairs_stepwise.jsonl
