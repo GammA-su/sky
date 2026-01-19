@@ -127,6 +127,11 @@ def collate_batch(
     labels_list: List[List[int]] = []
     attention_list: List[List[int]] = []
     state_ids_list: List[List[int]] = []
+    stepwise_input_ids_list: List[List[int]] = []
+    stepwise_labels_list: List[List[int]] = []
+    stepwise_attention_list: List[List[int]] = []
+    has_stepwise_completion = False
+    state_spans_list: List[list] = []
 
     hypotheses_list: List[List[str]] = []
     correct_list: List[List[bool]] = []
@@ -160,7 +165,29 @@ def collate_batch(
         labels_list.append(labels)
         attention_list.append(attention)
 
-        state_tokens, supervised = expand_state_spans(row, completion, tokenizer)
+        stepwise_text = row.get("stepwise_completion", None)
+        stepwise_completion = str(stepwise_text) if stepwise_text is not None else ""
+        if stepwise_completion:
+            has_stepwise_completion = True
+        stepwise_ids = tokenizer.encode(stepwise_completion, add_bos=False, add_eos=False)
+        stepwise_input_ids = [tokenizer.bos_id] + prompt_ids + stepwise_ids + [tokenizer.eos_id]
+        if max_len is not None and len(stepwise_input_ids) > max_len:
+            stepwise_input_ids = stepwise_input_ids[:max_len]
+        stepwise_labels = [-100] * len(stepwise_input_ids)
+        if stepwise_completion:
+            prompt_len = 1 + len(prompt_ids)
+            start = max(prompt_len - 1, 0)
+            for i in range(start, len(stepwise_input_ids) - 1):
+                stepwise_labels[i] = stepwise_input_ids[i + 1]
+        stepwise_attention = [1] * len(stepwise_input_ids)
+        stepwise_input_ids_list.append(stepwise_input_ids)
+        stepwise_labels_list.append(stepwise_labels)
+        stepwise_attention_list.append(stepwise_attention)
+
+        state_completion = completion
+        if stepwise_completion:
+            state_completion = stepwise_completion
+        state_tokens, supervised = expand_state_spans(row, state_completion, tokenizer)
         if state_tokens is not None:
             state_supervised_tokens += supervised
             if supervised > 0:
@@ -186,6 +213,7 @@ def collate_batch(
 
         task_type = row.get("task_type", None)
         task_types.append(str(task_type) if task_type is not None else "")
+        state_spans_list.append(list(row.get("state_spans", [])) if "state_spans" in row else [])
 
     max_len_batch = max(len(ids) for ids in input_ids_list)
     padded_inputs = []
@@ -204,6 +232,24 @@ def collate_batch(
     equiv_ids_tensor = torch.tensor(equiv_ids, dtype=torch.long)
     verify_labels_tensor = torch.tensor(verify_labels, dtype=torch.long)
 
+    if has_stepwise_completion:
+        max_step_len = max(len(ids) for ids in stepwise_input_ids_list)
+        padded_stepwise_inputs = []
+        padded_stepwise_labels = []
+        padded_stepwise_attention = []
+        for ids, labels, attn in zip(stepwise_input_ids_list, stepwise_labels_list, stepwise_attention_list):
+            pad = max_step_len - len(ids)
+            padded_stepwise_inputs.append(ids + [tokenizer.pad_id] * pad)
+            padded_stepwise_labels.append(labels + [-100] * pad)
+            padded_stepwise_attention.append(attn + [0] * pad)
+        stepwise_input_ids_tensor = torch.tensor(padded_stepwise_inputs, dtype=torch.long)
+        stepwise_labels_tensor = torch.tensor(padded_stepwise_labels, dtype=torch.long)
+        stepwise_attention_tensor = torch.tensor(padded_stepwise_attention, dtype=torch.bool)
+    else:
+        stepwise_input_ids_tensor = None
+        stepwise_labels_tensor = None
+        stepwise_attention_tensor = None
+
     max_h = max((len(h) for h in hypotheses_list), default=0)
     if max_h > 0:
         correct_mask = torch.zeros((len(batch), max_h), dtype=torch.bool)
@@ -217,7 +263,7 @@ def collate_batch(
         correct_mask = None
         hypothesis_mask = None
 
-    return {
+    batch_out = {
         "input_ids": input_ids_tensor,
         "labels": labels_tensor,
         "attention_mask": attention_tensor,
@@ -231,7 +277,18 @@ def collate_batch(
         "task_type": task_types,
         "state_supervised_tokens": state_supervised_tokens,
         "num_carry_examples": num_carry_examples,
+        "has_stepwise_completion": has_stepwise_completion,
+        "state_spans": state_spans_list,
     }
+    if has_stepwise_completion:
+        batch_out.update(
+            {
+                "stepwise_input_ids": stepwise_input_ids_tensor,
+                "stepwise_labels": stepwise_labels_tensor,
+                "stepwise_attention_mask": stepwise_attention_tensor,
+            }
+        )
+    return batch_out
 
 
 def build_dataloader(

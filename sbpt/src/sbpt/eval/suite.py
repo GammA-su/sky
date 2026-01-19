@@ -73,6 +73,39 @@ def _make_format_hard_pair(rng: random.Random, task_id: int) -> list[dict]:
     ]
 
 
+def _digits_for(value: int, total_digits: int) -> list[int]:
+    digits = [int(ch) for ch in reversed(str(value))]
+    if len(digits) < total_digits:
+        digits.extend([0] * (total_digits - len(digits)))
+    return digits
+
+
+def _encode_carry_state(pos_index: int, carry: int) -> int:
+    return pos_index * 2 + carry
+
+
+def _build_stepwise_states(a: int, b: int, sum_str: str) -> tuple[list[int], list[tuple[int, int, int]]]:
+    total_digits = len(sum_str)
+    a_rev = _digits_for(a, total_digits)
+    b_rev = _digits_for(b, total_digits)
+
+    carry = 0
+    state_ids: list[int] = []
+    for pos in range(total_digits):
+        state_ids.append(_encode_carry_state(pos, carry))
+        digit_sum = a_rev[pos] + b_rev[pos] + carry
+        carry = 1 if digit_sum >= 10 else 0
+
+    state_spans: list[tuple[int, int, int]] = []
+    start_char = 0
+    for idx in range(total_digits):
+        pos_index = total_digits - 1 - idx
+        state_value = state_ids[pos_index]
+        state_spans.append((start_char, start_char + 1, state_value))
+        start_char += 2
+    return state_ids, state_spans
+
+
 def _make_format_hard_stepwise_pair(
     rng: random.Random,
     task_id: int,
@@ -95,6 +128,7 @@ def _make_format_hard_stepwise_pair(
 
     sum_str = str(a + b)
     good = " ".join(sum_str)
+    state_ids, state_spans = _build_stepwise_states(a, b, sum_str)
     corrupt_type = rng.choice(["double_space", "newline", "prefix", "suffix", "compact"])
     if corrupt_type == "double_space":
         bad = good.replace(" ", "  ", 1)
@@ -107,9 +141,24 @@ def _make_format_hard_stepwise_pair(
     else:
         bad = good.replace(" ", "")
 
+    base = {"task_type": "add_carry_stepwise", "state_ids": state_ids, "state_spans": state_spans}
     return [
-        {"prompt": prompt, "completion": good, "verify_label": 1, "verify_type": "stepwise_format", "task_id": task_id},
-        {"prompt": prompt, "completion": bad, "verify_label": 0, "verify_type": "stepwise_format", "task_id": task_id},
+        {
+            **base,
+            "prompt": prompt,
+            "completion": good,
+            "verify_label": 1,
+            "verify_type": "stepwise_format",
+            "task_id": task_id,
+        },
+        {
+            **base,
+            "prompt": prompt,
+            "completion": bad,
+            "verify_label": 0,
+            "verify_type": "stepwise_format",
+            "task_id": task_id,
+        },
     ]
 
 
@@ -163,6 +212,7 @@ def _make_robust_pair_stepwise(
     b = rng.randint(10 ** (b_digits - 1), 10 ** b_digits - 1)
     sum_str = str(a + b)
     completion = " ".join(sum_str)
+    state_ids, state_spans = _build_stepwise_states(a, b, sum_str)
 
     p1 = f"Add {a} and {b}. Reply with digits separated by spaces."
     distract = rng.choice(
@@ -174,8 +224,9 @@ def _make_robust_pair_stepwise(
     )
     p2 = f"{distract}\nCompute {a} + {b} and output digits separated by spaces only."
 
-    r1 = {"prompt": p1, "completion": completion, "equiv_id": equiv_id}
-    r2 = {"prompt": p2, "completion": completion, "equiv_id": equiv_id}
+    base = {"task_type": "add_carry_stepwise", "state_ids": state_ids, "state_spans": state_spans}
+    r1 = {"prompt": p1, "completion": completion, "equiv_id": equiv_id, **base}
+    r2 = {"prompt": p2, "completion": completion, "equiv_id": equiv_id, **base}
     return r1, r2
 
 
@@ -367,7 +418,9 @@ def run_eval(ckpt_path: str, cfg_path: Optional[str] = None, cpu: bool = False) 
                 all_conf.extend(conf.cpu().tolist())
                 all_correct.extend((correct.cpu() > 0.99).tolist())
 
-                if "state_logits" in outputs.get("aux", {}):
+                state_spans = batch.get("state_spans", [])
+                has_state_spans = any(bool(spans) for spans in state_spans)
+                if "state_logits" in outputs.get("aux", {}) and (has_state_spans or batch.get("state_ids") is not None):
                     state_accs.append(state_accuracy(outputs["aux"]["state_logits"], batch["state_ids"].to(device)))
                 if "belief_logits" in outputs.get("aux", {}):
                     belief_ents.append(belief_entropy(outputs["aux"]["belief_logits"], batch.get("hypothesis_mask")))

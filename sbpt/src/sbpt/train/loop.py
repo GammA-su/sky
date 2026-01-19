@@ -48,6 +48,7 @@ def train(
     if not weights:
         weights = get_phase_defaults(phase)
     trans_weight = float(weights.get("trans", weights.get("transition", 0.0)))
+    bridge_stepwise_weight = float(weights.get("bridge_stepwise_lm", 0.0))
 
     seed = int(train_cfg.get("seed", 123))
     set_seed(seed)
@@ -140,6 +141,21 @@ def train(
             lm_loss = compute_lm_loss(logits, labels)
             loss_total = loss_total + float(weights["lm"]) * lm_loss
             loss_items["lm"] = float(lm_loss.detach().cpu())
+
+        if bridge_stepwise_weight > 0.0 and batch.get("has_stepwise_completion"):
+            stepwise_input_ids = batch.get("stepwise_input_ids")
+            stepwise_labels = batch.get("stepwise_labels")
+            stepwise_attention = batch.get("stepwise_attention_mask")
+            if stepwise_input_ids is not None and stepwise_labels is not None and stepwise_attention is not None:
+                stepwise_outputs = model(
+                    input_ids=stepwise_input_ids.to(device),
+                    attention_mask=stepwise_attention.to(device),
+                    metadata=metadata,
+                )
+                stepwise_logits = stepwise_outputs["logits"]
+                stepwise_loss = compute_lm_loss(stepwise_logits, stepwise_labels.to(device))
+                loss_total = loss_total + bridge_stepwise_weight * stepwise_loss
+                loss_items["bridge_stepwise_lm"] = float(stepwise_loss.detach().cpu())
 
         if weights.get("state", 0.0) > 0 and "state_logits" in aux:
             state_losses = compute_state_losses(aux["state_logits"], state_ids, adjacency)

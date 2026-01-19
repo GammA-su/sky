@@ -16,3 +16,4 @@ train:
   save_path: out/sbpt_ckpt.pt
 loss_weights:
   lm: 1.0
+  bridge_stepwise_lm: 0.3

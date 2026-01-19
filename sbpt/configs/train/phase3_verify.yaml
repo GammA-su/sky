@@ -20,3 +20,4 @@ loss_weights:
   calib: 0.1
   state: 0.10
   trans: 0.02
+  bridge_stepwise_lm: 0.3

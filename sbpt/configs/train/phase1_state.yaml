@@ -19,3 +19,4 @@ loss_weights:
   state: 0.35
   trans: 0.08
   transition: 0.08
+  bridge_stepwise_lm: 0.3
